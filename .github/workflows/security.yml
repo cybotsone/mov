@@ -1,4 +1,4 @@
-name: CodeQL Without GHAS (Output security.txt)
+name: CodeQL Without GHAS (Scan GitHub Actions Workflows)
 
 on:
   push:
@@ -7,14 +7,13 @@ on:
     branches: [ "main" ]
 
 jobs:
-  codeql:
+  security:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repo
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    # Install CodeQL CLI
     - name: Install CodeQL CLI
       run: |
         curl -L -o codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
@@ -22,23 +21,20 @@ jobs:
         sudo mv codeql /opt/codeql
         echo "/opt/codeql" >> $GITHUB_PATH
 
-    # Create CodeQL Database for GitHub Actions scanning
-    - name: Create CodeQL Database
+    - name: Create CodeQL database for Actions language
       run: |
         /opt/codeql/codeql database create codeql-db \
           --language=actions \
           --source-root=.
 
-    # Run CodeQL analysis using the official GitHub Actions query pack
-    - name: Run CodeQL Analysis
+    - name: Run CodeQL Analysis (download query pack)
       run: |
         /opt/codeql/codeql database analyze codeql-db \
-          codeql/actions-queries:actions-security-extended \
+          --download codeql/actions-queries@latest \
           --format=sarifv2 \
           --output=results.sarif
 
-    # Convert SARIF → security.txt
-    - name: Convert SARIF to security.txt
+    - name: Convert SARIF → security.txt
       run: |
         echo "GitHub Actions Security Report" > security.txt
         echo "============================" >> security.txt
@@ -47,7 +43,6 @@ jobs:
           "Rule: \(.ruleId)\nSeverity: \(.level)\nMessage: \(.message.text)\nFile: \(.locations[0].physicalLocation.artifactLocation.uri)\nLine: \(.locations[0].physicalLocation.region.startLine)\n---"
         ' results.sarif >> security.txt
 
-    # Upload the text report
     - name: Upload security.txt
       uses: actions/upload-artifact@v4
       with:
