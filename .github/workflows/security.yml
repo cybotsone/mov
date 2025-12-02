@@ -1,46 +1,54 @@
-name: "Security Checks"
+name: CodeQL Without GHAS (Output security.txt)
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    branches: ["main"]
-  schedule:
-    - cron: '0 2 * * 1' # weekly scan
-
-permissions:
-  contents: read
-  id-token: write
-  security-events: write
-  actions: read
-  pull-requests: write
+    branches: [ "main" ]
 
 jobs:
   codeql:
-    name: CodeQL Analysis
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ['javascript'] # change based on your repo
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repo
+      uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
+    # Install CodeQL CLI
+    - name: Install CodeQL CLI
+      run: |
+        curl -L -o codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
+        unzip codeql.zip
+        sudo mv codeql /opt/codeql
+        echo "/opt/codeql" >> $GITHUB_PATH
 
-      # For Java/Maven/Gradle, build step is required
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+    # Create CodeQL DB (Actions language)
+    - name: Create CodeQL Database
+      run: |
+        /opt/codeql/codeql database create codeql-db \
+          --language=actions \
+          --source-root=.
 
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+    # Run CodeQL Analysis (Actions rules)
+    - name: Run CodeQL Analysis
+      run: |
+        /opt/codeql/codeql database analyze codeql-db \
+          actions-security-and-quality.qls \
+          --format=sarifv2 \
+          --output=results.sarif
+
+    # Convert SARIF → security.txt
+    - name: Convert SARIF to security.txt
+      run: |
+        echo "GitHub Actions Security Report" > security.txt
+        echo "============================" >> security.txt
+        jq -r '
+          .runs[].results[] |
+          "Rule: \(.ruleId)\nSeverity: \(.level)\nMessage: \(.message.text)\nFile: \(.locations[0].physicalLocation.artifactLocation.uri)\nLine: \(.locations[0].physicalLocation.region.startLine)\n---"
+        ' results.sarif >> security.txt
+
+    # Upload text report
+    - name: Upload security.txt
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-report
