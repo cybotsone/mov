@@ -31,7 +31,7 @@ jobs:
       run: |
         /opt/codeql/codeql database analyze codeql-db \
           --download codeql/actions-queries@latest \
-          --format=sarifv2 \
+          --format=sarifv2.1.0 \
           --output=results.sarif
 
     - name: Convert SARIF → security.txt
