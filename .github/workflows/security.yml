@@ -22,18 +22,18 @@ jobs:
         sudo mv codeql /opt/codeql
         echo "/opt/codeql" >> $GITHUB_PATH
 
-    # Create CodeQL DB (Actions language)
+    # Create CodeQL Database for GitHub Actions scanning
     - name: Create CodeQL Database
       run: |
         /opt/codeql/codeql database create codeql-db \
           --language=actions \
           --source-root=.
 
-    # Run CodeQL Analysis (Actions rules)
+    # Run CodeQL analysis using the official GitHub Actions query pack
     - name: Run CodeQL Analysis
       run: |
         /opt/codeql/codeql database analyze codeql-db \
-          actions-security-and-quality.qls \
+          codeql/actions-queries:actions-security-extended \
           --format=sarifv2 \
           --output=results.sarif
 
@@ -47,8 +47,9 @@ jobs:
           "Rule: \(.ruleId)\nSeverity: \(.level)\nMessage: \(.message.text)\nFile: \(.locations[0].physicalLocation.artifactLocation.uri)\nLine: \(.locations[0].physicalLocation.region.startLine)\n---"
         ' results.sarif >> security.txt
 
-    # Upload text report
+    # Upload the text report
     - name: Upload security.txt
       uses: actions/upload-artifact@v4
       with:
         name: security-report
+        path: security.txt
