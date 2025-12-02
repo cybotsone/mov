@@ -1,5 +1,9 @@
 name: CodeQL Without GHAS (Scan GitHub Actions Workflows)
 
+permissions:
+  contents: read
+  security-events: write
+
 on:
   push:
     branches: [ "main" ]
