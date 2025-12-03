@@ -31,24 +31,29 @@ jobs:
           --language=actions \
           --source-root=.
 
-    - name: Run CodeQL Analysis (download query pack)
+    - name: Run CodeQL Analysis (GitHub Actions Security)
       run: |
         /opt/codeql/codeql database analyze codeql-db \
-          --download codeql/actions-queries@latest \
-          --format=sarifv2.1.0 \
-          --output=results.sarif
+        --download codeql/actions-queries@latest \
+        --format=sarifv2.1.0 \
+        --output=results.sarif
 
-    - name: Convert SARIF → security.txt
+    - name: Generate Human-Readable Report
       run: |
-        echo "GitHub Actions Security Report" > security.txt
-        echo "============================" >> security.txt
-        jq -r '
-          .runs[].results[] |
-          "Rule: \(.ruleId)\nSeverity: \(.level)\nMessage: \(.message.text)\nFile: \(.locations[0].physicalLocation.artifactLocation.uri)\nLine: \(.locations[0].physicalLocation.region.startLine)\n---"
-        ' results.sarif >> security.txt
+        echo "## 🛡️ CodeQL Security Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
 
-    - name: Upload security.txt
+        if jq -e '.runs[].results | length > 0' results.sarif >/dev/null; then
+          jq -r '
+            .runs[].results[]? |
+            "### 🔴 Rule: \(.ruleId)\n- **Severity:** \(.level)\n- **Message:** \(.message.text)\n"
+          ' results.sarif >> $GITHUB_STEP_SUMMARY
+        else
+          echo "✔️ No security issues found!" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Upload SARIF
       uses: actions/upload-artifact@v4
       with:
-        name: security-report
-        path: security.txt
+        name: security-report-sarif
+        path: results.sarif
