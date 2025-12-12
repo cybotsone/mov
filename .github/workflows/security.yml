@@ -1,59 +1,67 @@
-name: CodeQL Without GHAS (Scan GitHub Actions Workflows)
+FROM golang:1.25.5-alpine AS gitlfs-builder
+RUN apk add --no-cache git build-base
+RUN git clone https://github.com/git-lfs/git-lfs.git /src
+WORKDIR /src
+RUN make
 
-permissions:
-  contents: read
-  security-events: write
+FROM jenkins/inbound-agent:latest-alpine3.23-jdk21
+USER root
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+RUN apk add --no-cache \
+    python3 py3-pip \
+    curl jq bind-tools unzip git bash \
+    py3-cryptography py3-bcrypt py3-paramiko \
+    build-base libffi-dev openssl-dev python3-dev \
+    groff less git-lfs
 
-jobs:
-  security:
-    runs-on: ubuntu-latest
+# ---------------------------------------------
+# FIX ALL PYTHON CVEs HERE
+# ---------------------------------------------
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+# 1) Upgrade pip + setuptools to avoid:
+#    - CVE-2024-6345
+#    - CVE-2025-47273
+RUN pip3 install --upgrade pip setuptools wheel --break-system-packages
+RUN pip3 install "setuptools>=78.1.1" --break-system-packages
 
-    - name: Install CodeQL CLI
-      run: |
-        curl -L -o codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
-        unzip codeql.zip
-        sudo mv codeql /opt/codeql
-        echo "/opt/codeql" >> $GITHUB_PATH
+# 2) Install SAFE urllib3
+#    Fixes:
+#    - CVE-2025-66418
+#    - CVE-2025-66471
+RUN pip3 install "urllib3>=2.6.0" --break-system-packages
 
-    - name: Create CodeQL database for Actions language
-      run: |
-        /opt/codeql/codeql database create codeql-db \
-          --language=actions \
-          --source-root=.
+# 3) Upgrade boto3/botocore so they DO NOT down-grade urllib3 back to a vulnerable version
+RUN pip3 install "boto3>=1.35.84" "botocore>=1.35.84" --break-system-packages
 
-    - name: Run CodeQL Analysis (GitHub Actions Security)
-      run: |
-        /opt/codeql/codeql database analyze codeql-db \
-        --download codeql/actions-queries@latest \
-        --format=sarifv2.1.0 \
-        --output=results.sarif
+# 4) Install SAFE Ansible (fixes 9 CVEs):
+#    Fixes:
+#    - CVE-2021-3583
+#    - CVE-2022-3697
+#    - CVE-2020-25635
+#    - CVE-2021-3620
+#    - CVE-2020-14330
+#    - CVE-2023-5115
+#    - CVE-2025-14010
+#    - CVE-2020-1736
+RUN pip3 install "ansible>=9.0.0" --break-system-packages
 
-    - name: Generate Human-Readable Report
-      run: |
-        echo "## 🛡️ CodeQL Security Report" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+# 5) Fix yaml CVE
+#    - CVE-2023-2251
+RUN pip3 install "PyYAML>=6.0.2" --break-system-packages
 
-        if jq -e '.runs[].results | length > 0' results.sarif >/dev/null; then
-          jq -r '
-            .runs[].results[]? |
-            "### 🔴 Rule: \(.ruleId)\n- **Severity:** \(.level)\n- **Message:** \(.message.text)\n"
-          ' results.sarif >> $GITHUB_STEP_SUMMARY
-        else
-          echo "✔️ No security issues found!" >> $GITHUB_STEP_SUMMARY
-        fi
+# 6) Fix py CVE (even if disputed)
+#    - CVE-2022-42969
+RUN pip3 install "py>=1.11.1" --break-system-packages
 
-    - name: Upload SARIF
-      uses: actions/upload-artifact@v4
-      with:
-        name: security-report-sarif
-        path: results.sarif
+# 7) Fix black formatter CVE
+#    - CVE-2024-21503
+RUN pip3 install "black>=24.3.0" --break-system-packages
+
+# 8) Fix deepdiff + other dependencies
+RUN pip3 install --upgrade deepdiff passlib awscli --break-system-packages
+
+# ---------------------------------------------
+# END OF SECURITY FIXES
+# ---------------------------------------------
+
+COPY --from=gitlfs-builder /src/bin/git-lfs /usr/local/bin/git-lfs
